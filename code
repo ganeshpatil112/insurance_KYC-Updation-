@@ -1,0 +1,41 @@
+CREATE OR REPLACE PROCEDURE KYC_Audit_Process IS
+    CURSOR c_missing_kyc IS
+        SELECT NBM_QUOT_NUMBER, NBM_PROPOSAL_NO
+        FROM T_NEW_BUSINESS_MASTER
+        WHERE CREATEDDATE >= SYSDATE - 90
+          AND ISSYNC = '0'
+          AND ISFLAG1 = '0'
+          AND NBM_PROPOSAL_NO IS NOT NULL
+          AND PortalIndividual.IS_KYC(NBM_PROPOSAL_NO) = 'N';
+
+    v_missing_count NUMBER := 0;
+BEGIN
+    FOR rec IN c_missing_kyc LOOP
+        BEGIN
+            INSERT INTO T_KYC_AUDIT_LOG (
+                QUOTATION_NO,
+                PROPOSAL_NO,
+                AUDIT_DATE,
+                ISSUE_DESC
+            ) VALUES (
+                rec.NBM_QUOT_NUMBER,
+                rec.NBM_PROPOSAL_NO,
+                SYSDATE,
+                'KYC not found'
+            );
+
+            -- Optionally mark it for manual review
+            UPDATE T_NEW_BUSINESS_MASTER
+            SET ISFLAG1 = '9'
+            WHERE NBM_QUOT_NUMBER = rec.NBM_QUOT_NUMBER;
+
+            v_missing_count := v_missing_count + 1;
+        EXCEPTION
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('Failed to insert audit for ' || rec.NBM_PROPOSAL_NO || ': ' || SQLERRM);
+        END;
+    END LOOP;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('KYC Audit completed. Total flagged: ' || v_missing_count);
+END;
